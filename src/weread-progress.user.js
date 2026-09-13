@@ -1,0 +1,282 @@
+// ==UserScript==
+// @name         微信读书书架进度
+// @namespace    https://github.com/lurui1997/weread-progress
+// @version      0.1.3
+// @license      MIT
+// @description  在微信读书网页版书架 / 书单上展示「读完」与「已读到 x%」
+// @homepageURL  https://github.com/lurui1997/weread-progress
+// @supportURL   https://github.com/lurui1997/weread-progress/issues
+// @downloadURL  https://raw.githubusercontent.com/lurui1997/weread-progress/main/src/weread-progress.user.js
+// @updateURL    https://raw.githubusercontent.com/lurui1997/weread-progress/main/src/weread-progress.user.js
+// @match        *://weread.qq.com/*
+// @include      https://weread.qq.com/*
+// @run-at       document-idle
+// @inject-into  content
+// @grant        GM_addStyle
+// ==/UserScript==
+
+(() => {
+  "use strict";
+
+  const STYLE_ID = "lego-weread-progress-style";
+  const BADGE_CLASS = "lego-weread-progress";
+
+  function normalizeProgress(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.trunc(n)));
+  }
+
+  function isFinished(book) {
+    if (!book || typeof book !== "object") return false;
+    if (normalizeProgress(book.progress) === 100) return true;
+    if (book.finishReading === 1 || book.finishReading === true) return true;
+    return false;
+  }
+
+  function hasStarted(book) {
+    if (!book || typeof book !== "object") return false;
+    if (normalizeProgress(book.progress) > 0) return true;
+    if (book.isStartReading === 1 || book.isStartReading === true) return true;
+    if (Number(book.readingTime) > 0) return true;
+    return false;
+  }
+
+  function progressLabel(book) {
+    const percent = normalizeProgress(book?.progress);
+    if (isFinished(book)) {
+      return { kind: "finished", text: "读完", percent: 100 };
+    }
+    if (hasStarted(book)) {
+      return { kind: "reading", text: `已读到 ${percent}%`, percent };
+    }
+    return { kind: "unread", text: "未开始", percent: 0 };
+  }
+
+  function ensureStyle() {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+      a.shelfBook { position: relative; }
+      .${BADGE_CLASS} {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: auto;
+        z-index: 2;
+        pointer-events: none;
+      }
+      .${BADGE_CLASS}[data-kind="finished"] {
+        top: 8px;
+        left: auto;
+        right: 6px;
+        width: auto;
+        padding: 2px 6px;
+        border-radius: 2px;
+        background: #1a9e5c;
+        color: #fff;
+        font-size: 11px;
+        line-height: 16px;
+      }
+      .${BADGE_CLASS}[data-kind="reading"],
+      .${BADGE_CLASS}[data-kind="unread"] {
+        top: 0;
+        height: 185px;
+        display: flex;
+        align-items: flex-end;
+      }
+      .${BADGE_CLASS}__bar {
+        width: 100%;
+        padding: 4px 6px 6px;
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.62));
+        color: #fff;
+        font-size: 11px;
+        line-height: 14px;
+      }
+      a.shelfBook .info.lego-weread-info {
+        display: block;
+        height: auto;
+        -webkit-line-clamp: 1;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function vueOf(el) {
+    return (
+      el.__vue__ ||
+      el.__vueParentComponent?.proxy ||
+      el.__vueParentComponent?.ctx ||
+      null
+    );
+  }
+
+  function bookFromCard(card) {
+    const vue = vueOf(card);
+    if (vue?.book && vue.book.bookId) return vue.book;
+    let node = card;
+    for (let i = 0; i < 6 && node; i += 1) {
+      const inst = vueOf(node);
+      if (inst?.book?.bookId) return inst.book;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  async function fetchJson(url) {
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) return null;
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function progressByBookId(bookId) {
+    const data = await fetchJson(
+      `/web/book/getProgress?bookId=${encodeURIComponent(bookId)}`,
+    );
+    const book = data?.book || data;
+    if (!book) return null;
+    return {
+      bookId,
+      progress: book.progress,
+      finishTime: book.finishTime,
+      isStartReading: book.isStartReading,
+    };
+  }
+
+  function cardTitle(card) {
+    const el = card.querySelector(".title");
+    if (!el) return "";
+    return (el.getAttribute("title") || el.textContent || "").trim();
+  }
+
+  async function shelfIndex() {
+    const data = await fetchJson("/web/shelf/sync");
+    const books = Array.isArray(data?.books) ? data.books : [];
+    const progressById = new Map();
+    for (const row of data?.bookProgress || []) {
+      if (row?.bookId != null) progressById.set(String(row.bookId), row);
+    }
+    const map = new Map();
+    for (const book of books) {
+      if (!book?.bookId) continue;
+      const extra = progressById.get(String(book.bookId));
+      map.set(String(book.bookId), {
+        ...book,
+        progress: extra?.progress ?? book.progress,
+        readingTime: extra?.readingTime ?? book.readingTime,
+        isStartReading: extra?.isStartReading ?? book.isStartReading,
+      });
+    }
+    return map;
+  }
+
+  function paint(card, book) {
+    const label = progressLabel(book);
+    let badge = card.querySelector(`.${BADGE_CLASS}`);
+    if (!badge) {
+      badge = document.createElement("div");
+      badge.className = BADGE_CLASS;
+      const cover = card.querySelector(".cover") || card.firstElementChild;
+      if (cover) cover.insertAdjacentElement("afterbegin", badge);
+      else card.insertBefore(badge, card.firstChild);
+    }
+    badge.dataset.kind = label.kind;
+    if (label.kind === "finished") {
+      badge.textContent = label.text;
+    } else {
+      badge.innerHTML = `<div class="${BADGE_CLASS}__bar">${label.text}</div>`;
+    }
+
+    let info = card.querySelector(".info");
+    if (!info) {
+      info = document.createElement("div");
+      info.className = "info";
+      card.appendChild(info);
+    }
+    info.classList.add("lego-weread-info");
+    info.textContent = label.text;
+  }
+
+  const progressCache = new Map();
+  let shelfPromise = null;
+
+  function getShelf() {
+    if (!shelfPromise) shelfPromise = shelfIndex().catch(() => new Map());
+    return shelfPromise;
+  }
+
+  async function resolveBook(card) {
+    const local = bookFromCard(card);
+    if (
+      local &&
+      (local.progress != null ||
+        local.finishReading != null ||
+        local.readingTime != null)
+    ) {
+      const shelf = await getShelf();
+      const extra = local.bookId ? shelf.get(String(local.bookId)) : null;
+      return extra ? { ...local, ...extra } : local;
+    }
+    const bookId = local?.bookId;
+    const shelf = await getShelf();
+    if (bookId && shelf.has(String(bookId))) {
+      return { ...local, ...shelf.get(String(bookId)) };
+    }
+    const title = cardTitle(card);
+    if (title) {
+      for (const book of shelf.values()) {
+        if (book.title === title) return { ...local, ...book };
+      }
+    }
+    if (bookId) {
+      if (!progressCache.has(bookId)) {
+        progressCache.set(bookId, progressByBookId(bookId));
+      }
+      const extra = await progressCache.get(bookId);
+      if (extra) return { ...local, ...extra };
+    }
+    return local;
+  }
+
+  async function enhance() {
+    ensureStyle();
+    const cards = document.querySelectorAll("a.shelfBook:not(.shelfBook_add)");
+    for (const card of cards) {
+      const book = await resolveBook(card);
+      if (!book) continue;
+      paint(card, book);
+    }
+  }
+
+  let timer = 0;
+  let running = false;
+  let pending = false;
+  function schedule() {
+    if (running) {
+      pending = true;
+      return;
+    }
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      running = true;
+      enhance()
+        .catch(() => {})
+        .finally(() => {
+          running = false;
+          if (pending) {
+            pending = false;
+            schedule();
+          }
+        });
+    }, 200);
+  }
+
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  schedule();
+})();

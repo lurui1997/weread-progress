@@ -1,0 +1,27 @@
+{
+  "name": "weread-progress",
+  "version": "0.1.3",
+  "private": false,
+  "license": "MIT",
+  "description": "Show reading progress on the WeRead (微信读书) web shelf",
+  "type": "module",
+  "author": "lurui1997",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lurui1997/weread-progress.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lurui1997/weread-progress/issues"
+  },
+  "homepage": "https://github.com/lurui1997/weread-progress#readme",
+  "keywords": [
+    "weread",
+    "wechat-reading",
+    "userscript",
+    "tampermonkey",
+    "progress"
+  ],
+  "scripts": {
+    "test": "node --test test/label.test.js"
+  }
+}
