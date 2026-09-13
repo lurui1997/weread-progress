@@ -31,6 +31,26 @@
 
 油猴开关无效时：确认「允许运行用户脚本」已打开，然后完全退出 Chrome（`Cmd+Q` / 退出浏览器）再进书架。仪表盘版本至少 **0.1.3**。
 
+## AI 安装
+
+把下面整段发给 Cursor / Claude / ChatGPT 等能操作本机浏览器的助手：
+
+```
+帮我在本机 Chrome 安装微信读书书架进度油猴脚本。
+
+1. 确认已安装 Tampermonkey。没有就先装：https://www.tampermonkey.net/
+2. Chrome 138+：打开 chrome://extensions/?id=dhdgffkkebhmkfjojejmpbldmpobfkfo ，打开「允许用户脚本」或「允许运行用户脚本」。
+3. 用油猴安装这个地址（打开后点安装；已装过就更新到最新）：
+   https://raw.githubusercontent.com/lurui1997/weread-progress/main/src/weread-progress.user.js
+4. 仪表盘里确认「微信读书书架进度」已启用，版本至少 0.1.3。
+5. 打开已登录的 https://weread.qq.com/web/shelf 或某个书单封面墙，封面上应出现「读完 / 已读到 x% / 未开始」。
+6. 没有进度条：完全退出 Chrome（macOS 用 Cmd+Q）再打开书架。不要只关窗口。
+
+脚本只读当前登录态下的同域接口，不上传账号。非官方，与腾讯 / 微信读书无关。
+```
+
+助手装完后，自己打开书架看一眼封面即可。
+
 ## 使用
 
 1. 用 Chrome 打开已登录的 [微信读书网页版](https://weread.qq.com/web/shelf)
